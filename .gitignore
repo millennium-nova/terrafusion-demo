@@ -9,8 +9,13 @@ static/*
 #vscode
 .vscode/*
 
+# cache
+src/__pycache__/
+
 # others
 check-heightmap-values.py
 make_sketch_transparent.py
 make_sketchline_dilate.py
 add_sketch.py
+uncond-inference.py
+prompt.txt

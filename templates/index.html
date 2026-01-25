@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Terrain Viewer</title>
+    <title>Terrain Generator</title>
     <style>
         body { font-family: sans-serif; margin: 0; overflow: hidden; background: #333; }
         
@@ -40,12 +40,16 @@
     <div id="loading">Loading / Processing...</div>
     
     <div id="ui-container">
-        <h3>Terrain Viewer</h3>
+        <h3>Terrain Generator</h3>
         
-        <label>Data</label>
-        <select id="image-selector">
-            <option value="">Select a terrain...</option>
-        </select>
+        <label>Generation Parameters</label>
+        <label style="font-size: 11px; margin-top: 0;">Inference Steps</label>
+        <div class="control-row">
+            <input type="range" id="num-steps" min="10" max="50" step="1" value="20">
+            <span id="val-steps" class="val-display">20</span>
+        </div>
+
+        <button id="generate-button" style="background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;">Generate Terrain</button>
 
         <hr>
 
@@ -92,8 +96,8 @@
 
         <label>Data Stats</label>
         <div id="data-stats" style="font-size: 0.85em; background: rgba(0,0,0,0.05); padding: 8px; border-radius: 4px; line-height: 1.4; margin-bottom: 10px;">
-            <div>Min Height: <span id="info-min" style="font-weight:bold;">-</span></div>
-            <div>Max Height: <span id="info-max" style="font-weight:bold;">-</span></div>
+            <div>Width: <span id="info-width" style="font-weight:bold;">-</span></div>
+            <div>Height: <span id="info-height" style="font-weight:bold;">-</span></div>
             <div>Resolution: <span id="info-res" style="font-weight:bold;">-</span></div>
         </div>
 
@@ -106,6 +110,15 @@
     <script src="https://unpkg.com/three@0.131.3/examples/js/controls/OrbitControls.js"></script>
 
     <script>
+        // デバッグモード設定（本番環境では false に）
+        const DEBUG_MODE = true;
+        
+        function debugLog(message) {
+            if (DEBUG_MODE) {
+                console.log(`[DEBUG] ${message}`);
+            }
+        }
+        
         let scene, camera, renderer, controls;
         let terrainMesh, terrainGroup;
         let isRotating = false;
@@ -121,11 +134,15 @@
 
         document.addEventListener('DOMContentLoaded', async function() {
             initThreeJS();
-            await loadFileList();
 
+            // num_steps スライダー
+            document.getElementById('num-steps').addEventListener('input', function(e) {
+                const val = parseInt(e.target.value);
+                document.getElementById('val-steps').textContent = val;
+            });
 
-            // データセット選択
-            document.getElementById('image-selector').addEventListener('change', loadTerrainData);
+            // Generate ボタン
+            document.getElementById('generate-button').addEventListener('click', generateTerrain);
             
             // 背景色
             document.getElementById('bg-color-selector').addEventListener('change', function(e) {
@@ -180,25 +197,14 @@
             });
         });
 
-        async function loadFileList() {
-            try {
-                const res = await fetch('/images');
-                const names = await res.json();
-                const selector = document.getElementById('image-selector');
-                names.forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    selector.appendChild(opt);
-                });
-            } catch(e) { console.error(e); }
-        }
-
-        async function loadTerrainData() {
-            const name = this.value;
-            if (!name) return;
-
+        async function generateTerrain() {
+            const numSteps = parseInt(document.getElementById('num-steps').value);
+            
+            debugLog(`Generate button clicked, num_steps: ${numSteps}`);
+            
             document.getElementById('loading').style.display = 'block';
+            document.getElementById('loading').textContent = 'Generating...';
+            document.getElementById('generate-button').disabled = true;
 
             // リセット処理
             if (terrainGroup) {
@@ -211,53 +217,63 @@
             }
 
             try {
-                const res = await fetch('/generate', {
+                debugLog("Sending fetch request to /infer...");
+                const res = await fetch('/infer', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({ num_inference_steps: numSteps })
                 });
 
+                debugLog(`Response received, status: ${res.status}`);
                 if (!res.ok) throw new Error('Server error');
                 const data = await res.json();
+                debugLog(`Response data: width=${data.width}, height=${data.height}`);
 
                 // --- Heightmap デコード ---
-                console.log("Loading heightmap. Dtype:", data.dtype, "Size:", data.width, "x", data.height);
-                const binaryString = window.atob(data.heightmap_raw);
+                debugLog(`Loading heightmap. Dtype: ${data.dtype}, Size: ${data.width} x ${data.height}`);
+                const binaryString = window.atob(data.heightmap);
                 const bytes = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
 
-                // 生データを保存
-                if (data.dtype.includes('int16') || data.dtype.includes('uint16')) {
-                    rawHeightData = new Uint16Array(bytes.buffer);
-                } else if (data.dtype.includes('float')) {
-                    rawHeightData = new Float32Array(bytes.buffer);
-                } else {
-                    rawHeightData = new Uint8Array(bytes.buffer);
-                }
+                // float32として解釈
+                rawHeightData = new Float32Array(bytes.buffer);
                 
-                console.log("Data sample:", rawHeightData.slice(0, 10));
-                
-                document.getElementById('info-min').textContent = data.orig_min.toFixed(2);
-                document.getElementById('info-max').textContent = data.orig_max.toFixed(2);
+                document.getElementById('info-width').textContent = data.width;
+                document.getElementById('info-height').textContent = data.height;
                 document.getElementById('info-res').textContent = `${data.width} x ${data.height}`;
 
                 // 表示用データを初期化
-                // TypedArrayのコピーを作成
-                processedHeightData = new rawHeightData.constructor(rawHeightData);
+                processedHeightData = new Float32Array(rawHeightData);
 
                 currentWidth = data.width;
                 currentHeight = data.height;
 
                 // --- Texture ロード ---
                 const loader = new THREE.TextureLoader();
-                currentTexture = await new Promise(resolve => {
-                    loader.load('data:image/png;base64,' + data.texture, resolve);
-                });
+                const texBinaryString = window.atob(data.texture);
+                const texBytes = new Uint8Array(texBinaryString.length);
+                for (let i = 0; i < texBinaryString.length; i++) {
+                    texBytes[i] = texBinaryString.charCodeAt(i);
+                }
+                const texFloat32 = new Float32Array(texBytes.buffer);
+                
+                // Float32Array を ImageData に変換
+                const canvas = document.createElement('canvas');
+                canvas.width = data.width;
+                canvas.height = data.height;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.createImageData(data.width, data.height);
+                
+                for (let i = 0; i < texFloat32.length; i++) {
+                    imageData.data[i] = Math.round(texFloat32[i] * 255);
+                }
+                ctx.putImageData(imageData, 0, 0);
+                
+                currentTexture = new THREE.CanvasTexture(canvas);
 
                 // --- スムージングの初期適用 ---
-                // 現在のスライダー値に基づいて適用
                 const kernelSize = parseInt(document.getElementById('blur-kernel').value);
                 if (kernelSize > 1) {
                     applySmoothing(kernelSize);
@@ -267,10 +283,12 @@
                 createTerrainMesh();
 
             } catch (err) {
-                console.error(err);
-                alert('Error loading terrain: ' + err.message);
+                console.error("Error generating terrain:", err);
+                alert('Error generating terrain: ' + err.message);
             } finally {
+                debugLog("Cleaning up UI...");
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('generate-button').disabled = false;
             }
         }
 

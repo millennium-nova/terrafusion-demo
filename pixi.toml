@@ -1,7 +1,7 @@
 [workspace]
 authors = ["millennium-nova <s2111268@u.tsukuba.ac.jp>"]
 channels = ["conda-forge"]
-name = "terrain_webapp"
+name = "terrafusion-demo"
 platforms = ["linux-64"]
 version = "0.1.0"
 

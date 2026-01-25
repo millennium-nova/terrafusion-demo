@@ -1,3 +1,6 @@
+# © 2025 Kazuki Higo
+# Licensed under the PolyForm Noncommercial License 1.0.0.
+# See: https://polyformproject.org/licenses/noncommercial/1.0.0/
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget
 from PyQt6.QtGui import QImage, QPainter, QPen, QColor
