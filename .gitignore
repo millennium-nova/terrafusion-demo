@@ -1,0 +1,16 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# images
+sketches/*
+static/*
+
+#vscode
+.vscode/*
+
+# others
+check-heightmap-values.py
+make_sketch_transparent.py
+make_sketchline_dilate.py
+add_sketch.py

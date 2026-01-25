@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Terrain Viewer</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; overflow: hidden; background: #333; }
+        
+        #ui-container {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px; border-radius: 8px;
+            display: flex; flex-direction: column; gap: 10px;
+            width: 300px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            z-index: 100;
+        }
+        h3 { margin: 0 0 10px 0; font-size: 16px; text-align: center; }
+        label { font-size: 12px; font-weight: bold; color: #333; margin-top: 5px; display: block; }
+        .control-row { display: flex; align-items: center; justify-content: space-between; }
+        .control-row input[type=range] { flex-grow: 1; margin-right: 10px; }
+        .control-row input[type=checkbox] { width: auto; margin-right: 10px; }
+        .val-display { font-size: 12px; font-family: monospace; width: 50px; text-align: right; }
+        
+        select, button { width: 100%; box-sizing: border-box; padding: 5px; }
+        hr { width: 100%; border: 0; border-top: 1px solid #ddd; margin: 5px 0; }
+        
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 24px; font-weight: bold;
+            display: none; pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+            z-index: 200;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading / Processing...</div>
+    
+    <div id="ui-container">
+        <h3>Terrain Viewer</h3>
+        
+        <label>Data</label>
+        <select id="image-selector">
+            <option value="">Select a terrain...</option>
+        </select>
+
+        <hr>
+
+        <label>Appearance</label>
+        <select id="bg-color-selector">
+            <option value="black">Background: Black</option>
+            <option value="white">Background: White</option>
+        </select>
+
+        <div class="control-row" style="margin-top: 8px;">
+            <label style="margin:0; cursor: pointer;">
+                <input type="checkbox" id="texturing-toggle" checked> Enable Texture
+            </label>
+        </div>
+
+        <label>Wireframe</label>
+        <button id="toggle-wireframe">Toggle Wireframe</button>
+
+        <hr>
+
+        <label>Geometry Settings</label>
+        
+        <label>Height Scale (Exaggeration)</label>
+        <div class="control-row">
+            <input type="range" id="displacement-scale" min="0" max="2" step="0.05" value="1.0">
+            <span id="val-scale" class="val-display">1.0</span>
+        </div>
+
+        <label>Smoothing (Kernel Size)</label>
+        <div class="control-row">
+            <input type="range" id="blur-kernel" min="1" max="9" step="2" value="1">
+            <span id="val-blur" class="val-display">1 px</span>
+        </div>
+        
+        <hr>
+
+        <label>Lighting</label>
+        <div class="control-row">
+            <input type="range" id="light-intensity" min="0" max="2" step="0.1" value="1.0">
+            <span id="val-light" class="val-display">1.0</span>
+        </div>
+
+        <hr>
+
+        <label>Data Stats</label>
+        <div id="data-stats" style="font-size: 0.85em; background: rgba(0,0,0,0.05); padding: 8px; border-radius: 4px; line-height: 1.4; margin-bottom: 10px;">
+            <div>Min Height: <span id="info-min" style="font-weight:bold;">-</span></div>
+            <div>Max Height: <span id="info-max" style="font-weight:bold;">-</span></div>
+            <div>Resolution: <span id="info-res" style="font-weight:bold;">-</span></div>
+        </div>
+
+        <div style="margin-top: 10px;">
+            <button id="toggle-rotation">Start Rotation</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/three@0.131.3/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.131.3/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let terrainMesh, terrainGroup;
+        let isRotating = false;
+        
+        // データ管理
+        let rawHeightData = null;      // サーバーから受け取った生の高さデータ
+        let processedHeightData = null; // スムージング適用後の高さデータ
+        let currentTexture = null;     // ロードしたテクスチャ画像
+        
+        let currentWidth = 0;
+        let currentHeight = 0;
+        let baseScale = 30.0; // 正規化された(0~1)標高をどれくらいの高さとして表示するか
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            initThreeJS();
+            await loadFileList();
+
+
+            // データセット選択
+            document.getElementById('image-selector').addEventListener('change', loadTerrainData);
+            
+            // 背景色
+            document.getElementById('bg-color-selector').addEventListener('change', function(e) {
+                const isWhite = e.target.value === 'white';
+                scene.background = new THREE.Color(isWhite ? 0xffffff : 0x000000);
+                const loader = document.getElementById('loading');
+                loader.style.color = isWhite ? 'black' : 'white';
+                loader.style.textShadow = isWhite ? 'none' : '1px 1px 2px black';
+            });
+
+            // テクスチャ ON/OFF
+            document.getElementById('texturing-toggle').addEventListener('change', updateMaterial);
+
+            // ワイヤーフレーム
+            document.getElementById('toggle-wireframe').addEventListener('click', function() {
+                if (terrainMesh) {
+                    terrainMesh.material.wireframe = !terrainMesh.material.wireframe;
+                }
+            });
+
+            // 高さスケール
+            document.getElementById('displacement-scale').addEventListener('input', function(e) {
+                const val = parseFloat(e.target.value);
+                document.getElementById('val-scale').textContent = val.toFixed(1);
+                updateGeometryHeight(); // 再描画
+            });
+
+            // 平滑化
+            document.getElementById('blur-kernel').addEventListener('input', function(e) {
+                const val = parseInt(e.target.value);
+                document.getElementById('val-blur').textContent = val + " px";
+                
+                // カーネルサイズが変わったら再計算
+                if (rawHeightData) {
+                    applySmoothing(val);
+                    updateGeometryHeight();
+                }
+            });
+
+            // 7. 照明
+            document.getElementById('light-intensity').addEventListener('input', function(e) {
+                const val = parseFloat(e.target.value);
+                document.getElementById('val-light').textContent = val.toFixed(1);
+                const light = scene.getObjectByName('dirLight');
+                if (light) light.intensity = val;
+            });
+
+            // 8. 回転
+            document.getElementById('toggle-rotation').addEventListener('click', function() {
+                isRotating = !isRotating;
+                this.textContent = isRotating ? 'Pause Rotation' : 'Resume Rotation';
+            });
+        });
+
+        async function loadFileList() {
+            try {
+                const res = await fetch('/images');
+                const names = await res.json();
+                const selector = document.getElementById('image-selector');
+                names.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    selector.appendChild(opt);
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        async function loadTerrainData() {
+            const name = this.value;
+            if (!name) return;
+
+            document.getElementById('loading').style.display = 'block';
+
+            // リセット処理
+            if (terrainGroup) {
+                scene.remove(terrainGroup);
+                if(terrainMesh) { 
+                    terrainMesh.geometry.dispose(); 
+                    terrainMesh.material.dispose(); 
+                }
+                terrainMesh = null;
+            }
+
+            try {
+                const res = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: name })
+                });
+
+                if (!res.ok) throw new Error('Server error');
+                const data = await res.json();
+
+                // --- Heightmap デコード ---
+                console.log("Loading heightmap. Dtype:", data.dtype, "Size:", data.width, "x", data.height);
+                const binaryString = window.atob(data.heightmap_raw);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                // 生データを保存
+                if (data.dtype.includes('int16') || data.dtype.includes('uint16')) {
+                    rawHeightData = new Uint16Array(bytes.buffer);
+                } else if (data.dtype.includes('float')) {
+                    rawHeightData = new Float32Array(bytes.buffer);
+                } else {
+                    rawHeightData = new Uint8Array(bytes.buffer);
+                }
+                
+                console.log("Data sample:", rawHeightData.slice(0, 10));
+                
+                document.getElementById('info-min').textContent = data.orig_min.toFixed(2);
+                document.getElementById('info-max').textContent = data.orig_max.toFixed(2);
+                document.getElementById('info-res').textContent = `${data.width} x ${data.height}`;
+
+                // 表示用データを初期化
+                // TypedArrayのコピーを作成
+                processedHeightData = new rawHeightData.constructor(rawHeightData);
+
+                currentWidth = data.width;
+                currentHeight = data.height;
+
+                // --- Texture ロード ---
+                const loader = new THREE.TextureLoader();
+                currentTexture = await new Promise(resolve => {
+                    loader.load('data:image/png;base64,' + data.texture, resolve);
+                });
+
+                // --- スムージングの初期適用 ---
+                // 現在のスライダー値に基づいて適用
+                const kernelSize = parseInt(document.getElementById('blur-kernel').value);
+                if (kernelSize > 1) {
+                    applySmoothing(kernelSize);
+                }
+
+                // --- メッシュ生成 ---
+                createTerrainMesh();
+
+            } catch (err) {
+                console.error(err);
+                alert('Error loading terrain: ' + err.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        /**
+         * 高さデータの平滑化処理 (Box Blur)
+         * rawHeightData を読み込み、計算結果を processedHeightData に書き込む
+         */
+        function applySmoothing(kernelSize) {
+            if (!rawHeightData || kernelSize <= 1) {
+                // コピーして終了
+                processedHeightData.set(rawHeightData);
+                return;
+            }
+
+            const w = currentWidth;
+            const h = currentHeight;
+            const half = Math.floor(kernelSize / 2);
+
+            // 計算負荷軽減のため、単純な移動平均(Box Blur)を実装
+            // 注意: JSでの重いループはUIをブロックする可能性があるため、
+            // 画像サイズが大きい場合は本来Workerなどが望ましいが、ここでは直接計算する。
+            
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    let sum = 0;
+                    let count = 0;
+
+                    // カーネル範囲ループ
+                    for (let ky = -half; ky <= half; ky++) {
+                        for (let kx = -half; kx <= half; kx++) {
+                            const nx = x + kx;
+                            const ny = y + ky;
+
+                            // 範囲内チェック
+                            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                                const idx = ny * w + nx;
+                                sum += rawHeightData[idx];
+                                count++;
+                            }
+                        }
+                    }
+                    processedHeightData[y * w + x] = sum / count;
+                }
+            }
+        }
+
+        function createTerrainMesh() {
+            terrainGroup = new THREE.Group();
+
+            // セグメント数 (最大512)
+            const maxSegs = 512;
+            const wSegs = Math.min(currentWidth - 1, maxSegs);
+            const hSegs = Math.min(currentHeight - 1, maxSegs);
+            
+            const aspectRatio = currentHeight / currentWidth;
+            const sizeX = 100;
+            const sizeY = 100 * aspectRatio;
+
+            const geometry = new THREE.PlaneGeometry(sizeX, sizeY, wSegs, hSegs);
+            
+            // マテリアル作成
+            const material = new THREE.MeshStandardMaterial({ 
+                side: THREE.DoubleSide,
+                wireframe: false,
+                roughness: 0.8
+            });
+
+            terrainMesh = new THREE.Mesh(geometry, material);
+            terrainGroup.add(terrainMesh);
+            terrainGroup.rotation.x = -Math.PI / 2;
+            scene.add(terrainGroup);
+
+            // テクスチャ設定を適用
+            updateMaterial();
+            
+            // 高さ適用
+            updateGeometryHeight();
+        }
+
+        /**
+         * テクスチャのON/OFF切り替え
+         */
+        function updateMaterial() {
+            if (!terrainMesh) return;
+            
+            const useTexture = document.getElementById('texturing-toggle').checked;
+            
+            if (useTexture && currentTexture) {
+                terrainMesh.material.map = currentTexture;
+                terrainMesh.material.color.setHex(0xffffff); // テクスチャ本来の色
+            } else {
+                terrainMesh.material.map = null;
+                terrainMesh.material.color.setHex(0xcccccc); // グレー
+            }
+            terrainMesh.material.needsUpdate = true;
+        }
+
+        /**
+         * ジオメトリの高さを更新する (processedHeightData を使用)
+         */
+        function updateGeometryHeight() {
+            if (!terrainMesh || !processedHeightData) return;
+
+            const scale = parseFloat(document.getElementById('displacement-scale').value);
+            const geo = terrainMesh.geometry;
+            const pos = geo.attributes.position;
+            const vertexCount = pos.count;
+            
+            const gridX = geo.parameters.widthSegments + 1;
+            const gridY = geo.parameters.heightSegments + 1;
+
+            for (let i = 0; i < vertexCount; i++) {
+                const gx = i % gridX;
+                const gy = Math.floor(i / gridX);
+
+                const imgX = Math.floor((gx / (gridX - 1)) * (currentWidth - 1));
+                const imgY = Math.floor((gy / (gridY - 1)) * (currentHeight - 1));
+
+                const index = imgY * currentWidth + imgX;
+                
+                // processedHeightData (スムージング済み) を使用
+                let h = 0;
+                if (processedHeightData[index] !== undefined) {
+                    h = processedHeightData[index] * scale * baseScale;
+                }
+                pos.setZ(i, h);
+            }
+            pos.needsUpdate = true;
+            geo.computeVertexNormals();
+        }
+
+        function initThreeJS() {
+            const container = document.body;
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const uiWidth = 320; // UIパネルの幅 + マージン
+
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+            camera.position.set(0, 100, 150);
+            camera.lookAt(0, 0, 0);
+            
+            // 地形を右に寄せるためのオフセット設定
+            // (全体幅, 全体高さ, 描画開始X, 描画開始Y, 有効幅, 有効高さ)
+            // UI領域分(320px)だけ左側に「隠れた領域」があるものとして扱う
+            camera.setViewOffset(width, height, -uiWidth / 2, 0, width, height);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            dirLight.position.set(50, 100, 50);
+            dirLight.name = 'dirLight';
+            scene.add(dirLight);
+            
+            const ambLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambLight);
+
+            animate();
+
+            window.addEventListener('resize', () => {
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                camera.aspect = w / h;
+                camera.setViewOffset(w, h, -uiWidth / 2, 0, w, h);
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h);
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (isRotating && terrainGroup) {
+                terrainGroup.rotation.z += 0.005;
+            }
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

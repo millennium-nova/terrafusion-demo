@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Terrain Viewer</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            height: 100vh;
+            margin: 0;
+            padding-top: 20px;
+        }
+
+        h1 {
+            color: #555;
+        }
+
+        #controls {
+            background: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        #controls label {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        #displacement-scale {
+            width: 300px;
+            margin-right: 10px;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+        }
+
+        #canvas-container {
+            width: 1034px;
+            height: 1034px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-right: 20px;
+        }
+
+        #thumbnail-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #thumbnail {
+            max-width: 512px;
+            max-height: 256px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-top: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        select {
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Terrain Viewer</h1>
+    <select id="image-selector">
+        <option value="">Select an image</option>
+    </select>
+    <div id="controls">
+        <div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 8px; width: 100%;">
+            <label for="light-intensity" style="margin-left:16px;">Light Intensity:</label>
+            <input type="range" id="light-intensity" name="light-intensity" min="0" max="3" step="0.01" value="1.0">
+            <span id="light-intensity-value">1.0</span>
+            <label for="texturing-toggle" style="margin-left:16px;">Texturing:</label>
+            <input type="checkbox" id="texturing-toggle" name="texturing-toggle" checked>
+            <label for="shading-toggle" style="margin-left:16px;">Shading:</label>
+            <input type="checkbox" id="shading-toggle" name="shading-toggle" checked>
+            <button id="toggle-rotation" style="margin-left:16px;">Pause Rotation</button>
+        </div>
+        <div style="display: flex; flex-direction: row; align-items: center; width: 100%;">
+            <label for="displacement-scale" style="margin-left:8px;">Displacement Scale:</label>
+            <input type="range" id="displacement-scale" name="displacement-scale" min="0" max="5" step="0.1" value="1">
+            <span id="displacement-value">1</span>
+            <label for="blur-kernel" style="margin-left:16px;">Blur Kernel Size:</label>
+            <input type="range" id="blur-kernel" name="blur-kernel" min="1" max="9" step="2" value="5">
+            <span id="blur-kernel-value">5</span>
+        </div>
+    </div>
+    <div id="main-container">
+        <div id="canvas-container"></div>
+        <div id="thumbnail-container">
+            <h2>Selected Image</h2>
+            <img id="thumbnail" src="#" alt="Selected Image Thumbnail">
+        </div>
+    </div>
+    <script src="https://unpkg.com/three@0.131.3/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.131.3/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        let scene, camera, renderer, controls, plane, material;
+        let currentTexture = null;
+        let isRotating = true; // 回転制御用のフラグ
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            let dirLight = null;
+            document.getElementById('texturing-toggle').addEventListener('change', function() {
+                updateMaterial();
+            });
+            document.getElementById('shading-toggle').addEventListener('change', function() {
+                updateMaterial();
+            });
+
+            function updateMaterial() {
+                if (!plane) return;
+                const shadingEnabled = document.getElementById('shading-toggle').checked;
+                const texturingEnabled = document.getElementById('texturing-toggle').checked;
+                let newMaterial;
+                if (shadingEnabled) {
+                    newMaterial = texturingEnabled
+                        ? new THREE.MeshStandardMaterial({ map: currentTexture })
+                        : new THREE.MeshStandardMaterial({ color: 0xcccccc });
+                } else {
+                    newMaterial = texturingEnabled
+                        ? new THREE.MeshBasicMaterial({ map: currentTexture })
+                        : new THREE.MeshBasicMaterial({ color: 0xcccccc });
+                }
+                plane.material.dispose();
+                plane.material = newMaterial;
+            }
+            const selector = document.getElementById('image-selector');
+            const toggleRotationButton = document.getElementById('toggle-rotation');
+
+            // サーバーから利用可能な画像を取得
+            const imagesResponse = await fetch('/images');
+            let images = await imagesResponse.json();
+
+            // 画像をファイル名でソート
+            images.sort();
+
+            images.forEach(image => {
+                const option = document.createElement('option');
+                option.value = image;
+                option.textContent = image;
+                selector.appendChild(option);
+            });
+
+            // 画像選択時の処理
+            selector.addEventListener('change', async function() {
+                const selectedImage = this.value;
+                if (!selectedImage) return;
+
+                document.getElementById('thumbnail').src = `/static/images/${selectedImage}`;
+
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image: selectedImage })
+                });
+
+                if (!response.ok) {
+                    console.error('Failed to fetch data from /generate');
+                    return;
+                }
+
+                const data = await response.json();
+                console.log('Received response from /generate', data);
+
+                render3DModel(data.texture, data.height_map, 512, 512);
+            });
+
+            document.getElementById('displacement-scale').addEventListener('input', function() {
+                const scale = this.value;
+                document.getElementById('displacement-value').textContent = scale;
+                // Re-render with new displacement scale
+                const selector = document.getElementById('image-selector');
+                if (selector.value) {
+                    // Re-fetch and re-render the selected image
+                    selector.dispatchEvent(new Event('change'));
+                }
+            });
+
+            document.getElementById('blur-kernel').addEventListener('input', function() {
+                const kernel = this.value;
+                document.getElementById('blur-kernel-value').textContent = kernel;
+                // Re-render with new blur kernel size
+                const selector = document.getElementById('image-selector');
+                if (selector.value) {
+                    selector.dispatchEvent(new Event('change'));
+                }
+            });
+
+            // 回転のオン/オフを切り替え
+            toggleRotationButton.addEventListener('click', function() {
+                isRotating = !isRotating;
+                toggleRotationButton.textContent = isRotating ? 'Pause Rotation' : 'Resume Rotation';
+            });
+
+            function init() {
+                const container = document.getElementById('canvas-container');
+
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                renderer.setClearColor(0xffffff); // 背景
+                container.appendChild(renderer.domElement);
+
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+               
+                dirLight = new THREE.DirectionalLight(0xffffff, parseFloat(document.getElementById('light-intensity').value));
+                dirLight.position.set(30, 50, 30);
+                scene.add(dirLight);
+            document.getElementById('light-intensity').addEventListener('input', function() {
+                const intensity = parseFloat(this.value);
+                document.getElementById('light-intensity-value').textContent = intensity;
+                if (dirLight) {
+                    dirLight.intensity = intensity;
+                }
+            });
+
+                const hemiLight = new THREE.HemisphereLight(0xaaaaaa, 0x444444, 0.6);
+                hemiLight.position.set(0, 20, 0);
+                scene.add(hemiLight);
+
+
+                camera.position.z = 10;
+                camera.position.y = 6;
+                camera.lookAt(0, 0, 0);
+
+                controls.update();
+
+                animate();
+                console.log('3D scene initialized');
+            }
+
+            function render3DModel(textureBase64, heightMapBase64, width, height) {
+                const loader = new THREE.TextureLoader();
+                const textureDataUri = 'data:image/png;base64,' + textureBase64;
+                const heightMapDataUri = 'data:image/png;base64,' + heightMapBase64;
+
+                // Load texture
+                loader.load(textureDataUri, function(texture) {
+                    currentTexture = texture;
+                    // Load heightmap as image
+                    const img = new window.Image();
+                    img.src = heightMapDataUri;
+                    img.onload = function() {
+                        // Draw heightmap to canvas to get pixel data
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const imgData = ctx.getImageData(0, 0, img.width, img.height).data;
+
+                        if (plane) {
+                            scene.remove(plane);
+                        }
+
+                        const geometry = new THREE.PlaneGeometry(width / 100, height / 100, img.width - 1, img.height - 1);
+                        // Box blur for heightmap with variable kernel size
+                        const kernelSize = parseInt(document.getElementById('blur-kernel').value);
+                        const halfKernel = Math.floor(kernelSize / 2);
+                        function getBlurredHeight(ix, iy) {
+                            let sum = 0;
+                            let count = 0;
+                            for (let dx = -halfKernel; dx <= halfKernel; dx++) {
+                                for (let dy = -halfKernel; dy <= halfKernel; dy++) {
+                                    const nx = ix + dx;
+                                    const ny = iy + dy;
+                                    if (nx >= 0 && nx < img.width && ny >= 0 && ny < img.height) {
+                                        const pixelIndex = (ny * img.width + nx) * 4;
+                                        sum += imgData[pixelIndex] / 255.0;
+                                        count++;
+                                    }
+                                }
+                            }
+                            return sum / count;
+                        }
+
+                        const displacementScale = parseFloat(document.getElementById('displacement-scale').value);
+                        for (let i = 0; i < geometry.attributes.position.count; i++) {
+                            const ix = i % img.width;
+                            const iy = Math.floor(i / img.width);
+                            const heightValue = getBlurredHeight(ix, iy);
+                            geometry.attributes.position.setZ(i, heightValue * displacementScale);
+                        }
+                        geometry.computeVertexNormals();
+
+                        const shadingEnabled = document.getElementById('shading-toggle').checked;
+                        const texturingEnabled = document.getElementById('texturing-toggle').checked;
+                        if (shadingEnabled) {
+                            material = texturingEnabled
+                                ? new THREE.MeshStandardMaterial({ map: texture })
+                                : new THREE.MeshStandardMaterial({ color: 0xcccccc });
+                        } else {
+                            material = texturingEnabled
+                                ? new THREE.MeshBasicMaterial({ map: texture })
+                                : new THREE.MeshBasicMaterial({ color: 0xcccccc });
+                        }
+
+                        plane = new THREE.Mesh(geometry, material);
+                        plane.rotation.x = -Math.PI / 2;
+                        plane.position.y = -displacementScale / 2; // 位置を調整
+
+                        scene.add(plane);
+                        controls.update();
+                        console.log('3D model rendered with manual displacement and normals');
+                    };
+                    img.onerror = function(error) {
+                        console.error('Error loading height map image:', error);
+                    };
+                }, undefined, function(error) {
+                    console.error('Error loading texture:', error);
+                });
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                if (isRotating && plane) {
+                    plane.rotation.z += 0.005; // 回転
+                }
+
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            init();
+        });
+    </script>
+</body>
+</html>
