@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sketch Pad</title>
+    <style>
+        body { margin: 0; font-family: sans-serif; background: #222; color: #f0f0f0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .panel { background: #111; padding: 16px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); display: grid; grid-template-columns: auto 180px; gap: 16px; align-items: start; }
+        #sketch-canvas { border: 1px solid #444; border-radius: 6px; touch-action: none; }
+        .controls { display: flex; flex-direction: column; gap: 8px; }
+        .controls button { padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: #111; }
+        .controls button:active { transform: translateY(1px); }
+        .controls button.color-red { background: #ff4d4d; }
+        .controls button.color-green { background: #4dff4d; }
+        .controls button.color-blue { background: #4d8bff; }
+        .controls button.action { background: #e0e0e0; color: #111; }
+        .note { font-size: 12px; color: #aaa; line-height: 1.4; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <canvas id="sketch-canvas" width="800" height="800"></canvas>
+        <div class="controls">
+            <button class="color-red" id="btn-red">Valley (Red)</button>
+            <button class="color-green" id="btn-green">Ridge (Green)</button>
+            <button class="color-blue" id="btn-blue">Cliff (Blue)</button>
+            <button class="action" id="btn-undo">Undo</button>
+            <button class="action" id="btn-reset">Reset</button>
+            <button class="action" id="btn-save">Save PNG</button>
+            <div class="note">
+                Draw with a mouse or touch. Canvas is initialized in black. The last saved image is downloaded as sketch_result.png.
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='sketch/sketchpad.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const pad = new SketchPad('sketch-canvas', { size: 800, penWidth: 2, initialColor: '#ff0000' });
+
+            document.getElementById('btn-red').addEventListener('click', () => pad.setColor('#ff0000'));
+            document.getElementById('btn-green').addEventListener('click', () => pad.setColor('#00ff00'));
+            document.getElementById('btn-blue').addEventListener('click', () => pad.setColor('#0000ff'));
+            document.getElementById('btn-undo').addEventListener('click', () => pad.undo());
+            document.getElementById('btn-reset').addEventListener('click', () => pad.reset());
+            document.getElementById('btn-save').addEventListener('click', () => pad.save('sketch_result.png'));
+        });
+    </script>
+</body>
+</html>
