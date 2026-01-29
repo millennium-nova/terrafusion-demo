@@ -1,3 +1,7 @@
+<!-- © 2025 Kazuki Higo -->
+<!-- Licensed under the PolyForm Noncommercial License 1.0.0. -->
+<!-- See: https://polyformproject.org/licenses/noncommercial/1.0.0/ -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,6 +21,40 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             z-index: 100;
         }
+        
+        #image-display-container {
+            position: absolute; bottom: 10px; right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            z-index: 100;
+            max-width: 600px;
+        }
+        
+        .image-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .image-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .image-item img {
+            max-width: 280px;
+            max-height: 200px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .image-item label {
+            font-size: 11px;
+            margin-top: 5px;
+            color: #333;
+        }
         h3 { margin: 0 0 10px 0; font-size: 16px; text-align: center; }
         label { font-size: 12px; font-weight: bold; color: #333; margin-top: 5px; display: block; }
         .control-row { display: flex; align-items: center; justify-content: space-between; }
@@ -33,11 +71,55 @@
             display: none; pointer-events: none;
             text-shadow: 1px 1px 2px black;
             z-index: 200;
+            text-align: center;
+        }
+        
+        #progress-container {
+            width: 300px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            margin-top: 15px;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s ease;
+            border-radius: 8px;
+        }
+        
+        #progress-text {
+            font-size: 14px;
+            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.9);
         }
     </style>
 </head>
 <body>
-    <div id="loading">Loading / Processing...</div>
+    <div id="loading">
+        <div id="loading-message">Generating...</div>
+        <div id="progress-container">
+            <div id="progress-bar"></div>
+        </div>
+        <div id="progress-text">0%</div>
+    </div>
+    
+    <div id="image-display-container" style="display: none;">
+        <div class="image-row">
+            <div class="image-item" id="sketch-display" style="display: none;">
+                <img id="sketch-img" src="" alt="Input Sketch">
+                <label>Input Sketch</label>
+            </div>
+            <div class="image-item" id="viz-display" style="display: none;">
+                <img id="viz-img" src="" alt="Visualization">
+                <label>Texture (left) + Heightmap (right)</label>
+            </div>
+        </div>
+    </div>
     
     <div id="ui-container">
         <h3>Terrain Generator</h3>
@@ -45,10 +127,27 @@
         <label>Generation Parameters</label>
         <label style="font-size: 11px; margin-top: 0;">Inference Steps</label>
         <div class="control-row">
-            <input type="range" id="num-steps" min="10" max="50" step="1" value="20">
-            <span id="val-steps" class="val-display">20</span>
+            <input type="range" id="num-steps" min="10" max="1000" step="10" value="500">
+            <span id="val-steps" class="val-display">500</span>
         </div>
 
+        <label style="font-size: 11px; margin-top: 5px;">Random Seed (0 = Random)</label>
+        <input type="number" id="seed-input" min="0" max="2147483647" step="1" value="0" style="width: 100%; padding: 5px; box-sizing: border-box;">
+
+        <label style="font-size: 11px; margin-top: 5px;">Sketch Settings</label>
+        <div class="control-row" style="margin-top: 5px;">
+            <label style="margin:0; cursor: pointer;">
+                <input type="checkbox" id="save-sketch-toggle" checked> Save Sketch Image
+            </label>
+        </div>
+
+        <label style="font-size: 11px; margin-top: 5px;">Load Saved Sketch</label>
+        <select id="sketch-selector" style="margin-bottom: 5px;">
+            <option value="">-- Select saved sketch --</option>
+        </select>
+        <button id="load-sketch-button" style="background-color: #FF9800; color: white; font-weight: bold; padding: 8px; margin-bottom: 5px; font-size: 12px;">Load Selected</button>
+
+        <button id="sketch-button" style="background-color: #2196F3; color: white; font-weight: bold; padding: 10px; margin-bottom: 10px;">Open Sketch Pad</button>
         <button id="generate-button" style="background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;">Generate Terrain</button>
 
         <hr>
@@ -80,8 +179,8 @@
 
         <label>Smoothing (Kernel Size)</label>
         <div class="control-row">
-            <input type="range" id="blur-kernel" min="1" max="9" step="2" value="1">
-            <span id="val-blur" class="val-display">1 px</span>
+            <input type="range" id="blur-kernel" min="1" max="9" step="2" value="5">
+            <span id="val-blur" class="val-display">5 px</span>
         </div>
         
         <hr>
@@ -99,6 +198,7 @@
             <div>Width: <span id="info-width" style="font-weight:bold;">-</span></div>
             <div>Height: <span id="info-height" style="font-weight:bold;">-</span></div>
             <div>Resolution: <span id="info-res" style="font-weight:bold;">-</span></div>
+            <div>Elevation Range: <span id="info-elevation" style="font-weight:bold;">-</span></div>
         </div>
 
         <div style="margin-top: 10px;">
@@ -122,6 +222,8 @@
         let scene, camera, renderer, controls;
         let terrainMesh, terrainGroup;
         let isRotating = false;
+        let sketchWindow = null;
+        let currentSketchData = null;
         
         // データ管理
         let rawHeightData = null;      // サーバーから受け取った生の高さデータ
@@ -130,15 +232,71 @@
         
         let currentWidth = 0;
         let currentHeight = 0;
-        let baseScale = 30.0; // 正規化された(0~1)標高をどれくらいの高さとして表示するか
+        let baseScale = 20.0; // 正規化された(0~1)標高をどれくらいの高さとして表示するか
 
         document.addEventListener('DOMContentLoaded', async function() {
             initThreeJS();
+            
+            // スケッチ一覧を読み込む
+            loadSketchList();
 
             // num_steps スライダー
             document.getElementById('num-steps').addEventListener('input', function(e) {
                 const val = parseInt(e.target.value);
                 document.getElementById('val-steps').textContent = val;
+            });
+
+            // Load Sketch ボタン
+            document.getElementById('load-sketch-button').addEventListener('click', async function() {
+                const selector = document.getElementById('sketch-selector');
+                const filename = selector.value;
+                if (!filename) {
+                    alert('Please select a sketch from the list.');
+                    return;
+                }
+                
+                try {
+                    // 保存されたスケッチを読み込む
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        currentSketchData = canvas.toDataURL('image/png');
+                        console.log('Loaded sketch:', filename);
+                        document.getElementById('sketch-button').style.backgroundColor = '#FF9800';
+                        document.getElementById('sketch-button').textContent = 'Sketch Loaded \u2713';
+                    };
+                    img.src = `/static/data/${filename}`;
+                } catch (err) {
+                    console.error('Error loading sketch:', err);
+                    alert('Failed to load sketch: ' + err.message);
+                }
+            });
+
+            // Sketch ボタン
+            document.getElementById('sketch-button').addEventListener('click', function() {
+                if (sketchWindow && !sketchWindow.closed) {
+                    sketchWindow.focus();
+                    return;
+                }
+                sketchWindow = window.open('/sketch', 'SketchPad', 'width=1000,height=900');
+            });
+
+            // スケッチウィンドウからのメッセージを受け取る
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'sketch-complete') {
+                    currentSketchData = event.data.imageData;
+                    console.log('Sketch data received, starting generation...');
+                    document.getElementById('sketch-button').style.backgroundColor = '#FF9800';
+                    document.getElementById('sketch-button').textContent = 'Sketch Ready ✓';
+
+                    // 自動的に生成開始
+                    generateTerrain();
+                }
             });
 
             // Generate ボタン
@@ -199,12 +357,41 @@
 
         async function generateTerrain() {
             const numSteps = parseInt(document.getElementById('num-steps').value);
+            const saveSketch = document.getElementById('save-sketch-toggle').checked;
+            const seed = parseInt(document.getElementById('seed-input').value);
             
-            debugLog(`Generate button clicked, num_steps: ${numSteps}`);
+            debugLog(`Generate button clicked, num_steps: ${numSteps}, seed: ${seed}, has sketch: ${!!currentSketchData}, save: ${saveSketch}`);
             
+            // プログレス表示を初期化
             document.getElementById('loading').style.display = 'block';
-            document.getElementById('loading').textContent = 'Generating...';
+            document.getElementById('loading-message').textContent = 'Initializing...';
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('progress-text').textContent = '0%';
             document.getElementById('generate-button').disabled = true;
+
+            // 推定時間計算（1 step 約 0.08秒）
+            const estimatedTimeMs = numSteps * 80;
+            const updateInterval = 100; // 100msごとに更新
+            let elapsedTime = 0;
+            let progressPercent = 0;
+            
+            // プログレス更新用タイマー
+            const progressTimer = setInterval(() => {
+                elapsedTime += updateInterval;
+                progressPercent = Math.min(95, (elapsedTime / estimatedTimeMs) * 100);
+                
+                document.getElementById('progress-bar').style.width = progressPercent + '%';
+                document.getElementById('progress-text').textContent = Math.round(progressPercent) + '%';
+                
+                // メッセージ更新
+                if (progressPercent < 30) {
+                    document.getElementById('loading-message').textContent = 'Generating...';
+                } else if (progressPercent < 70) {
+                    document.getElementById('loading-message').textContent = 'Processing...';
+                } else {
+                    document.getElementById('loading-message').textContent = 'Finalizing...';
+                }
+            }, updateInterval);
 
             // リセット処理
             if (terrainGroup) {
@@ -218,13 +405,25 @@
 
             try {
                 debugLog("Sending fetch request to /infer...");
+                const requestBody = { 
+                    num_inference_steps: numSteps,
+                    save_sketch: saveSketch,
+                    seed: seed
+                };
+                
+                // スケッチデータがあれば追加
+                if (currentSketchData) {
+                    requestBody.sketch_image = currentSketchData;
+                    debugLog("Including sketch image in request");
+                }
+                
+                debugLog(`Request body: ${JSON.stringify({...requestBody, sketch_image: currentSketchData ? 'data...' : null})}`);
+                
                 const res = await fetch('/infer', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ num_inference_steps: numSteps })
+                    body: JSON.stringify(requestBody)
                 });
-
-                debugLog(`Response received, status: ${res.status}`);
                 if (!res.ok) throw new Error('Server error');
                 const data = await res.json();
                 debugLog(`Response data: width=${data.width}, height=${data.height}`);
@@ -243,6 +442,13 @@
                 document.getElementById('info-width').textContent = data.width;
                 document.getElementById('info-height').textContent = data.height;
                 document.getElementById('info-res').textContent = `${data.width} x ${data.height}`;
+                
+                // 標高範囲表示（パーセンタイル2%-98%）
+                if (data.elevation_min !== undefined && data.elevation_max !== undefined) {
+                    document.getElementById('info-elevation').textContent = `${data.elevation_min}m - ${data.elevation_max}m`;
+                } else {
+                    document.getElementById('info-elevation').textContent = '-';
+                }
 
                 // 表示用データを初期化
                 processedHeightData = new Float32Array(rawHeightData);
@@ -259,15 +465,22 @@
                 }
                 const texFloat32 = new Float32Array(texBytes.buffer);
                 
-                // Float32Array を ImageData に変換
+                // Float32Array を ImageData に変換 (RGB -> RGBA)
                 const canvas = document.createElement('canvas');
                 canvas.width = data.width;
                 canvas.height = data.height;
                 const ctx = canvas.getContext('2d');
                 const imageData = ctx.createImageData(data.width, data.height);
                 
-                for (let i = 0; i < texFloat32.length; i++) {
-                    imageData.data[i] = Math.round(texFloat32[i] * 255);
+                // texFloat32は(width * height * 3)個のRGB値を持つ
+                // imageData.dataは(width * height * 4)個のRGBA値を持つ
+                for (let i = 0; i < data.width * data.height; i++) {
+                    const rgbIndex = i * 3;
+                    const rgbaIndex = i * 4;
+                    imageData.data[rgbaIndex + 0] = Math.round(texFloat32[rgbIndex + 0] * 255); // R
+                    imageData.data[rgbaIndex + 1] = Math.round(texFloat32[rgbIndex + 1] * 255); // G
+                    imageData.data[rgbaIndex + 2] = Math.round(texFloat32[rgbIndex + 2] * 255); // B
+                    imageData.data[rgbaIndex + 3] = 255; // A (完全不透明)
                 }
                 ctx.putImageData(imageData, 0, 0);
                 
@@ -282,12 +495,53 @@
                 // --- メッシュ生成 ---
                 createTerrainMesh();
 
+                // --- 画像表示 ---
+                const imageDisplayContainer = document.getElementById('image-display-container');
+                
+                // スケッチ画像の表示
+                if (currentSketchData) {
+                    const sketchDisplay = document.getElementById('sketch-display');
+                    const sketchImg = document.getElementById('sketch-img');
+                    sketchImg.src = currentSketchData;
+                    sketchDisplay.style.display = 'flex';
+                    debugLog("Displaying sketch image");
+                } else {
+                    document.getElementById('sketch-display').style.display = 'none';
+                }
+                
+                // Viz画像の表示
+                if (data.viz_image) {
+                    const vizDisplay = document.getElementById('viz-display');
+                    const vizImg = document.getElementById('viz-img');
+                    vizImg.src = 'data:image/png;base64,' + data.viz_image;
+                    vizDisplay.style.display = 'flex';
+                    debugLog("Displaying viz image");
+                } else {
+                    document.getElementById('viz-display').style.display = 'none';
+                }
+                
+                // 少なくとも1つの画像がある場合はコンテナを表示
+                if (currentSketchData || data.viz_image) {
+                    imageDisplayContainer.style.display = 'block';
+                }
+                
+                // プログレスバーを100%に
+                clearInterval(progressTimer);
+                document.getElementById('progress-bar').style.width = '100%';
+                document.getElementById('progress-text').textContent = '100%';
+                document.getElementById('loading-message').textContent = 'Complete!';
+                
+                // 少し待ってから非表示
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                }, 500);
+
             } catch (err) {
                 console.error("Error generating terrain:", err);
                 alert('Error generating terrain: ' + err.message);
+                clearInterval(progressTimer);
             } finally {
                 debugLog("Cleaning up UI...");
-                document.getElementById('loading').style.display = 'none';
                 document.getElementById('generate-button').disabled = false;
             }
         }
@@ -471,6 +725,34 @@
             }
             controls.update();
             renderer.render(scene, camera);
+        }
+
+        /**
+         * 保存されたスケッチ一覧を取得してドロップダウンに追加
+         */
+        async function loadSketchList() {
+            try {
+                const response = await fetch('/sketches');
+                const data = await response.json();
+                
+                const selector = document.getElementById('sketch-selector');
+                // 既存のオプション（"-- Select saved sketch --"）以外をクリア
+                selector.innerHTML = '<option value="">-- Select saved sketch --</option>';
+                
+                if (data.sketches && data.sketches.length > 0) {
+                    data.sketches.forEach(filename => {
+                        const option = document.createElement('option');
+                        option.value = filename;
+                        option.textContent = filename;
+                        selector.appendChild(option);
+                    });
+                    debugLog(`Loaded ${data.sketches.length} saved sketches`);
+                } else {
+                    debugLog('No saved sketches found');
+                }
+            } catch (err) {
+                console.error('Error loading sketch list:', err);
+            }
         }
     </script>
 </body>

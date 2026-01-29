@@ -1,3 +1,7 @@
+// © 2025 Kazuki Higo
+// Licensed under the PolyForm Noncommercial License 1.0.0.
+// See: https://polyformproject.org/licenses/noncommercial/1.0.0/
+
 // Lightweight sketch pad for RGB line drawing on a black canvas.
 // Exposes a global SketchPad class for use from any page.
 (function () {
