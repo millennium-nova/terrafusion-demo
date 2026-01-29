@@ -12,6 +12,9 @@ static/data/*
 # cache
 src/__pycache__/
 
+# pretrained weights
+model/*
+
 # others
 check-heightmap-values.py
 make_sketch_transparent.py
