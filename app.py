@@ -225,8 +225,8 @@ def infer():
         # int16は通常-32768～32767だが、pipelineの出力は0～positive range
         # 0～8000（height_scale）として出力されているため、正規化する
         # ここでは単純に0-1の範囲に正規化
-        hgt_min = np.percentile(hgt_int16, 2)
-        hgt_max = np.percentile(hgt_int16, 98)
+        hgt_min = np.percentile(hgt_int16, 1)
+        hgt_max = np.percentile(hgt_int16, 99)
         if hgt_max > hgt_min:
             hgt_float32 = (hgt_int16.astype(np.float32) - hgt_min) / (hgt_max - hgt_min)
         else:
@@ -242,10 +242,10 @@ def infer():
         
         debug_log(f"Encoded data sizes - Texture: {len(tex_base64)} chars, Heightmap: {len(hgt_base64)} chars")
         
-        # パーセンタイル2%-98%の標高値を計算（メートル単位のint16から）
+        # パーセンタイルの標高値を計算（メートル単位のint16から）
         elevation_p2 = float(hgt_min)  # 既に計算済み
         elevation_p98 = float(hgt_max)  # 既に計算済み
-        debug_log(f"Elevation range (2%-98%): {elevation_p2:.1f}m - {elevation_p98:.1f}m")
+        debug_log(f"Elevation range: {elevation_p2:.1f}m - {elevation_p98:.1f}m")
         
         # Viz画像の処理（あれば）
         viz_base64 = None
