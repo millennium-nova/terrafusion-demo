@@ -210,7 +210,7 @@ def infer():
         
         debug_log("Pipeline completed successfully")
         
-        # 出力: uint8 (0-255) と int16 を float32 (0-1) に変換
+        # 出力: uint8 (0-255) と int16
         tex_uint8 = outputs.textures[0]  # (H, W, 3) uint8
         hgt_int16 = outputs.heightmaps[0]  # (H, W) int16
         
@@ -218,36 +218,38 @@ def infer():
         
         height, width = tex_uint8.shape[:2]
         
-        # Texture: uint8 -> float32 (0-1)
-        tex_float32 = tex_uint8.astype(np.float32) / 255.0
+        # パーセンタイル2%-98%の標高値を計算（表示用）
+        elevation_p2 = float(np.percentile(hgt_int16, 2))
+        elevation_p98 = float(np.percentile(hgt_int16, 98))
+        debug_log(f"Elevation range (2%-98%): {elevation_p2:.1f}m - {elevation_p98:.1f}m")
         
-        # Heightmap: int16 -> float32 (0-1)
-        # int16は通常-32768～32767だが、pipelineの出力は0～positive range
-        # 0～8000（height_scale）として出力されているため、正規化する
-        # ここでは単純に0-1の範囲に正規化
-        hgt_min = np.percentile(hgt_int16, 1)
-        hgt_max = np.percentile(hgt_int16, 99)
+        # Texture: uint8のPNG画像としてエンコード
+        tex_pil = Image.fromarray(tex_uint8)
+        tex_buffer = io.BytesIO()
+        tex_pil.save(tex_buffer, format='PNG')
+        tex_base64 = base64.b64encode(tex_buffer.getvalue()).decode('utf-8')
+        
+        # Heightmap: int16 -> float -> 0~1正規化（最小最大値） -> 255倍 -> uint8
+        hgt_float = hgt_int16.astype(np.float32)
+        hgt_min = np.min(hgt_float)
+        hgt_max = np.max(hgt_float)
+        
         if hgt_max > hgt_min:
-            hgt_float32 = (hgt_int16.astype(np.float32) - hgt_min) / (hgt_max - hgt_min)
+            hgt_normalized = (hgt_float - hgt_min) / (hgt_max - hgt_min)
         else:
-            hgt_float32 = np.zeros_like(hgt_int16, dtype=np.float32)
+            hgt_normalized = np.zeros_like(hgt_float)
         
-        # Base64エンコード
-        debug_log("Starting base64 encoding...")
-        tex_bytes = tex_float32.astype(np.float32).tobytes()
-        tex_base64 = base64.b64encode(tex_bytes).decode('utf-8')
+        hgt_uint8 = np.round(hgt_normalized * 255.0).astype(np.uint8)
         
-        hgt_bytes = hgt_float32.astype(np.float32).tobytes()
-        hgt_base64 = base64.b64encode(hgt_bytes).decode('utf-8')
+        # uint8のグレースケールPNG画像としてエンコード
+        hgt_pil = Image.fromarray(hgt_uint8, mode='L')
+        hgt_buffer = io.BytesIO()
+        hgt_pil.save(hgt_buffer, format='PNG')
+        hgt_base64 = base64.b64encode(hgt_buffer.getvalue()).decode('utf-8')
         
-        debug_log(f"Encoded data sizes - Texture: {len(tex_base64)} chars, Heightmap: {len(hgt_base64)} chars")
+        debug_log(f"Encoded PNG sizes - Texture: {len(tex_base64)} chars, Heightmap: {len(hgt_base64)} chars")
         
-        # パーセンタイルの標高値を計算（メートル単位のint16から）
-        elevation_p2 = float(hgt_min)  # 既に計算済み
-        elevation_p98 = float(hgt_max)  # 既に計算済み
-        debug_log(f"Elevation range: {elevation_p2:.1f}m - {elevation_p98:.1f}m")
-        
-        # Viz画像の処理（あれば）
+        # Viz画像の処理
         viz_base64 = None
         if outputs.viz_images is not None and len(outputs.viz_images) > 0:
             viz_np = outputs.viz_images[0]  # numpy array (H, W, 3) uint8
@@ -264,7 +266,7 @@ def infer():
             'height': int(height),
             'texture': tex_base64,
             'heightmap': hgt_base64,
-            'dtype': 'float32',
+            'format': 'png',  # PNG形式で送信
             'viz_image': viz_base64,
             'elevation_min': round(elevation_p2, 1),
             'elevation_max': round(elevation_p98, 1)

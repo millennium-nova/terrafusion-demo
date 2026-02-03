@@ -127,8 +127,8 @@
         <label>Generation Parameters</label>
         <label style="font-size: 11px; margin-top: 0;">Inference Steps</label>
         <div class="control-row">
-            <input type="range" id="num-steps" min="10" max="1000" step="10" value="500">
-            <span id="val-steps" class="val-display">500</span>
+            <input type="range" id="num-steps" min="10" max="1000" step="10" value="50">
+            <span id="val-steps" class="val-display">50</span>
         </div>
 
         <label style="font-size: 11px; margin-top: 5px;">Random Seed (0 = Random)</label>
@@ -210,7 +210,7 @@
     <script src="https://unpkg.com/three@0.131.3/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        // デバッグモード設定（本番環境では false に）
+        // デバッグモード設定
         const DEBUG_MODE = true;
         
         function debugLog(message) {
@@ -268,7 +268,7 @@
                         currentSketchData = canvas.toDataURL('image/png');
                         console.log('Loaded sketch:', filename);
                         document.getElementById('sketch-button').style.backgroundColor = '#FF9800';
-                        document.getElementById('sketch-button').textContent = 'Sketch Loaded \u2713';
+                        document.getElementById('sketch-button').textContent = `${filename} Loaded \u2713`;
                     };
                     img.src = `/static/data/${filename}`;
                 } catch (err) {
@@ -426,18 +426,47 @@
                 });
                 if (!res.ok) throw new Error('Server error');
                 const data = await res.json();
-                debugLog(`Response data: width=${data.width}, height=${data.height}`);
+                debugLog(`Response data: width=${data.width}, height=${data.height}, format=${data.format}`);
 
-                // --- Heightmap デコード ---
-                debugLog(`Loading heightmap. Dtype: ${data.dtype}, Size: ${data.width} x ${data.height}`);
-                const binaryString = window.atob(data.heightmap);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
+                currentWidth = data.width;
+                currentHeight = data.height;
 
-                // float32として解釈
-                rawHeightData = new Float32Array(bytes.buffer);
+                // --- Texture ロード（PNG画像として） ---
+                const texImage = new Image();
+                texImage.onload = function() {
+                    currentTexture = new THREE.Texture(texImage);
+                    currentTexture.needsUpdate = true;
+                    debugLog("Texture loaded from PNG");
+                };
+                texImage.src = 'data:image/png;base64,' + data.texture;
+
+                // --- Heightmap ロード（PNG画像として、uint8グレースケール） ---
+                const hgtImage = new Image();
+                await new Promise((resolve, reject) => {
+                    hgtImage.onload = function() {
+                        // Canvas経由でピクセルデータを取得
+                        const canvas = document.createElement('canvas');
+                        canvas.width = data.width;
+                        canvas.height = data.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(hgtImage, 0, 0);
+                        
+                        const imageData = ctx.getImageData(0, 0, data.width, data.height);
+                        const pixels = imageData.data;
+                        
+                        // uint8グレースケール（0-255）をfloat (0-1)に変換
+                        rawHeightData = new Float32Array(data.width * data.height);
+                        for (let i = 0; i < data.width * data.height; i++) {
+                            const rgbaIndex = i * 4;
+                            rawHeightData[i] = pixels[rgbaIndex] / 255.0; // R成分を使用（グレースケールなのでR=G=B）
+                        }
+                        
+                        debugLog("Heightmap loaded from PNG");
+                        resolve();
+                    };
+                    hgtImage.onerror = reject;
+                    hgtImage.src = 'data:image/png;base64,' + data.heightmap;
+                });
                 
                 document.getElementById('info-width').textContent = data.width;
                 document.getElementById('info-height').textContent = data.height;
@@ -452,39 +481,6 @@
 
                 // 表示用データを初期化
                 processedHeightData = new Float32Array(rawHeightData);
-
-                currentWidth = data.width;
-                currentHeight = data.height;
-
-                // --- Texture ロード ---
-                const loader = new THREE.TextureLoader();
-                const texBinaryString = window.atob(data.texture);
-                const texBytes = new Uint8Array(texBinaryString.length);
-                for (let i = 0; i < texBinaryString.length; i++) {
-                    texBytes[i] = texBinaryString.charCodeAt(i);
-                }
-                const texFloat32 = new Float32Array(texBytes.buffer);
-                
-                // Float32Array を ImageData に変換 (RGB -> RGBA)
-                const canvas = document.createElement('canvas');
-                canvas.width = data.width;
-                canvas.height = data.height;
-                const ctx = canvas.getContext('2d');
-                const imageData = ctx.createImageData(data.width, data.height);
-                
-                // texFloat32は(width * height * 3)個のRGB値を持つ
-                // imageData.dataは(width * height * 4)個のRGBA値を持つ
-                for (let i = 0; i < data.width * data.height; i++) {
-                    const rgbIndex = i * 3;
-                    const rgbaIndex = i * 4;
-                    imageData.data[rgbaIndex + 0] = Math.round(texFloat32[rgbIndex + 0] * 255); // R
-                    imageData.data[rgbaIndex + 1] = Math.round(texFloat32[rgbIndex + 1] * 255); // G
-                    imageData.data[rgbaIndex + 2] = Math.round(texFloat32[rgbIndex + 2] * 255); // B
-                    imageData.data[rgbaIndex + 3] = 255; // A (完全不透明)
-                }
-                ctx.putImageData(imageData, 0, 0);
-                
-                currentTexture = new THREE.CanvasTexture(canvas);
 
                 // --- スムージングの初期適用 ---
                 const kernelSize = parseInt(document.getElementById('blur-kernel').value);
@@ -689,7 +685,6 @@
             
             // 地形を右に寄せるためのオフセット設定
             // (全体幅, 全体高さ, 描画開始X, 描画開始Y, 有効幅, 有効高さ)
-            // UI領域分(320px)だけ左側に「隠れた領域」があるものとして扱う
             camera.setViewOffset(width, height, -uiWidth / 2, 0, width, height);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -698,7 +693,7 @@
 
             controls = new THREE.OrbitControls(camera, renderer.domElement);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
             dirLight.position.set(50, 100, 50);
             dirLight.name = 'dirLight';
             scene.add(dirLight);
