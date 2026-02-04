@@ -204,7 +204,7 @@ def infer():
                 num_inference_steps=num_inference_steps,
                 make_viz=True,
                 generator=generator,
-                height_scale=8000,
+                height_scale=2000,
                 image=input_sketch
             )
         
