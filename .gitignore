@@ -4,7 +4,6 @@
 
 # images
 sketches/*
-static/data/*
 
 #vscode
 .vscode/*
