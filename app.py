@@ -19,13 +19,13 @@ app = Flask(__name__)
 #精度
 WEIGHT_DTYPE = torch.float16
 
-# パスの指定
-BASE_DATA_DIR = os.path.join('static', 'data')
-HEIGHTMAP_DIR = os.path.join(BASE_DATA_DIR, 'heightmap')
-TEX_DIR = os.path.join(BASE_DATA_DIR, 'texture')
 
-os.makedirs(HEIGHTMAP_DIR, exist_ok=True)
-os.makedirs(TEX_DIR, exist_ok=True)
+BASE_DATA_DIR = os.path.join('static', 'data')
+# HEIGHTMAP_DIR = os.path.join(BASE_DATA_DIR, 'heightmap')
+# TEX_DIR = os.path.join(BASE_DATA_DIR, 'texture')
+
+# os.makedirs(HEIGHTMAP_DIR, exist_ok=True)
+# os.makedirs(TEX_DIR, exist_ok=True)
 
 # ===== Initialize models on startup =====
 print("Loading models...")
@@ -79,7 +79,7 @@ unet = load_model("uncond-terrain-ldm", "unet")
 # Noise scheduler
 scheduler = load_model("uncond-terrain-ldm", "scheduler")
 
-# ControlNet (optional, can be None)
+# ControlNet
 controlnet = load_model("terra-fusion-controlnet", "controlnet")
 
 # ===== Initialize pipeline =====
@@ -95,9 +95,8 @@ pipeline = TerraFusionControlNetPipeline(
 pipeline.to(device)
 print("Models loaded successfully.")
 
-# デバッグ用ヘルパー関数
+# デバッグ用
 def debug_log(message):
-    """デバッグモードの時だけログを出力"""
     if app.debug:
         print(f"[DEBUG] {message}")
 
@@ -111,7 +110,7 @@ def sketch():
 
 @app.route('/sketches', methods=['GET'])
 def list_sketches():
-    """保存されたスケッチファイル一覧を返す"""
+    """保存済みスケッチファイル一覧を返す"""
     try:
         sketch_files = []
         if os.path.exists(BASE_DATA_DIR):
@@ -154,7 +153,7 @@ def infer():
             try:
                 # Base64デコード
                 if ',' in sketch_base64:
-                    sketch_base64 = sketch_base64.split(',')[1]
+                    sketch_base64 = sketch_base64.split(',')[1] # ',' より前はデータヘッダなので除去
                 sketch_bytes = base64.b64decode(sketch_base64)
                 sketch_image = Image.open(io.BytesIO(sketch_bytes)).convert("RGB")
                 debug_log(f"Sketch image loaded: {sketch_image.size}")
@@ -165,7 +164,7 @@ def infer():
                     sketch_image.save(sketch_path)
                     debug_log(f"Sketch image saved to: {sketch_path}")
                 
-                # 前処理（inference_controlnet_higo.pyと同様）
+                # 前処理
                 resolution = 512  # デフォルト解像度
                 preprocess = transforms.Compose([
                     transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
@@ -210,7 +209,7 @@ def infer():
         
         debug_log("Pipeline completed successfully")
         
-        # 出力: uint8 (0-255) と int16
+        # 出力データ
         tex_uint8 = outputs.textures[0]  # (H, W, 3) uint8
         hgt_int16 = outputs.heightmaps[0]  # (H, W) int16
         
@@ -218,7 +217,7 @@ def infer():
         
         height, width = tex_uint8.shape[:2]
         
-        # パーセンタイル2%-98%の標高値を計算（表示用）
+        # パーセンタイル2%-98%の標高値を計算
         elevation_p2 = float(np.percentile(hgt_int16, 2))
         elevation_p98 = float(np.percentile(hgt_int16, 98))
         debug_log(f"Elevation range (2%-98%): {elevation_p2:.1f}m - {elevation_p98:.1f}m")
@@ -229,10 +228,10 @@ def infer():
         tex_pil.save(tex_buffer, format='PNG')
         tex_base64 = base64.b64encode(tex_buffer.getvalue()).decode('utf-8')
         
-        # Heightmap: int16 -> float -> 0~1正規化（最小最大値） -> 255倍 -> uint8
+        # Heightmap: int16 -> float -> 0~1正規化（min-max） -> 255倍 -> uint8
         hgt_float = hgt_int16.astype(np.float32)
-        hgt_min = np.min(hgt_float)
-        hgt_max = np.max(hgt_float)
+        hgt_min = np.percentile(hgt_float, 2)
+        hgt_max = np.percentile(hgt_float, 98)
         
         if hgt_max > hgt_min:
             hgt_normalized = (hgt_float - hgt_min) / (hgt_max - hgt_min)
