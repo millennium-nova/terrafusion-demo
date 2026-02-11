@@ -230,8 +230,8 @@ def infer():
         
         # Heightmap: int16 -> float -> 0~1正規化（min-max） -> 255倍 -> uint8
         hgt_float = hgt_int16.astype(np.float32)
-        hgt_min = np.percentile(hgt_float, 2)
-        hgt_max = np.percentile(hgt_float, 98)
+        hgt_min = np.min(hgt_float)
+        hgt_max = np.max(hgt_float)
         
         if hgt_max > hgt_min:
             hgt_normalized = (hgt_float - hgt_min) / (hgt_max - hgt_min)
