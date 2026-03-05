@@ -3,7 +3,7 @@
 // See: https://polyformproject.org/licenses/noncommercial/1.0.0/
 
 // デバッグモード設定
-const DEBUG_MODE = true;
+const DEBUG_MODE = False;
 
 function debugLog(message) {
     if (DEBUG_MODE) {
