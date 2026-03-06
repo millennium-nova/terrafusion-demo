@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
 
-    // 7. 照明
+    // 照明強度
     document.getElementById('light-intensity').addEventListener('input', function(e) {
         const val = parseFloat(e.target.value);
         document.getElementById('val-light').textContent = val.toFixed(1);
@@ -149,7 +149,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (light) light.intensity = val;
     });
 
-    // 8. 回転
+    // 回転トグル
     document.getElementById('toggle-rotation').addEventListener('click', function() {
         isRotating = !isRotating;
         this.textContent = isRotating ? 'Pause Rotation' : 'Resume Rotation';
@@ -170,7 +170,7 @@ async function generateTerrain() {
     document.getElementById('progress-text').textContent = '0%';
     document.getElementById('generate-button').disabled = true;
 
-    // 推定時間計算（1 step 約 0.08秒）
+    // 推定時間計算 (疑似)
     const estimatedTimeMs = numSteps * 80;
     const updateInterval = 100; // 100msごとに更新
     let elapsedTime = 0;
@@ -371,8 +371,8 @@ function applySmoothing(kernelSize) {
     const half = Math.floor(kernelSize / 2);
 
     // 計算負荷軽減のため、単純な移動平均(Box Blur)を実装
-    // 注意: JSでの重いループはUIをブロックする可能性があるため、
-    // 画像サイズが大きい場合は本来Workerなどが望ましいが、ここでは直接計算する。
+    // 注意: JSでの重いループはUIをブロックする可能性がある
+    // 画像サイズが大きい場合は本来Workerなどが望ましいが、ここでは直接計算
     
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
@@ -422,7 +422,7 @@ function createTerrainMesh() {
 
     terrainMesh = new THREE.Mesh(geometry, material);
     terrainGroup.add(terrainMesh);
-    terrainGroup.rotation.x = -Math.PI / 2;
+    terrainGroup.rotation.x = -Math.PI / 2; // z 軸が上を向くように回転
     scene.add(terrainGroup);
 
     // テクスチャ設定を適用
